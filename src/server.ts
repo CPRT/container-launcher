@@ -1,8 +1,8 @@
 
 import express, { Request, Response } from 'express';
-import http from 'http';
+import http, { get } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import Docker from 'dockerode';
+import Docker, { Container } from 'dockerode';
 import url from 'url';
 import { Readable } from 'stream';
 import type { IncomingMessage } from 'http';
@@ -16,8 +16,49 @@ const sharedConfig: Partial<Docker.ContainerCreateOptions> = {
   HostConfig: {
     Privileged: true,
     NetworkMode: 'host',
+    AutoRemove: true,
   }
 };
+
+/**
+ * Retrieves a Docker container by its name.
+ * @param name - The name of the container to retrieve.
+ * @returns A promise that resolves to the Docker container or null if not found.
+ */
+async function getContainerByName(name: string): Promise<Container | null> {
+    try {
+        const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+        const containers = await docker.listContainers({ all: true });
+        const containerInfo = containers.find(c => c.Names.includes(`/${name}`));
+        if (containerInfo) {
+            return docker.getContainer(containerInfo.Id);
+        }
+        return null;
+    } catch (err) {
+        console.error('Error retrieving container by name:', err);
+        return null;
+    }
+}
+
+async function getContainerById(id: string): Promise<Container | null> {
+    try {
+        const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+        return docker.getContainer(id);
+    } catch (err) {
+        console.error('Error retrieving container by ID:', err);
+        return null;
+    }
+}
+
+async function getContainerId(container: Container): Promise<string | null> {
+    try {
+        const info = await container.inspect();
+        return info.Id;
+    } catch (err) {
+        console.error('Error retrieving container ID:', err);
+        return null;
+    }
+}
 
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 const app = express();
@@ -28,16 +69,34 @@ const wss = new WebSocketServer({ server });
 
 const clients = new Map<WebSocket, Readable>();
 
-// Track running containers by option key
-const runningContainers = new Map<string, Docker.Container>();
-
 // SSE clients per option key
 const sseClientsById: Record<string, Response[]> = {};
 Object.keys(launchOptions).forEach(opt => sseClientsById[opt] = []);
 
 // GET /options - return available launch option keys
-app.get('/options', (req: Request, res: Response) => {
-  res.json(Object.keys(launchOptions));
+app.get('/options', async (req: Request, res: Response) => {
+  const options = await Promise.all(Object.entries(launchOptions).map(async ([key, config]) => {
+    const container = await getContainerByName(`${key}-instance`);
+    const id = container ? await getContainerId(container) : null;
+    const status = container ? 'running' : 'stopped';
+    const startTime = container ? (await container.inspect()).State.StartedAt : null;
+    const protocol = req.protocol === 'https' ? 'wss' : 'ws';
+    const host = req.headers.host;
+    const logsWsUrl = container ? `${protocol}://${host}/logs?id=${id}` : null;
+    const cmd = config.command ? config.command.join(' ') : '';
+
+    return {
+      key,
+      description: `Launch option for ${key}`,
+      image: config.image,
+      cmd,
+      status,
+      startTime,
+      id,
+      logsWsUrl
+    };
+  }));
+  res.json(options);
 });
 
 // GET /events/:id - SSE stream for a specific option
@@ -62,6 +121,10 @@ app.get('/events/:id', (req: Request, res: Response) => {
 
 wss.on('connection', (ws: WebSocketWithStream, req: IncomingMessage) => {
   const parsed = url.parse(req.url || '', true);
+  if (!parsed.pathname || parsed.pathname !== '/logs') {
+    ws.close(1008, 'Invalid WebSocket path');
+    return;
+  }
   const containerId = parsed.query.id as string | undefined;
 
   if (!containerId) {
@@ -98,12 +161,13 @@ wss.on('connection', (ws: WebSocketWithStream, req: IncomingMessage) => {
 app.post('/start/:option', async (req, res) => {
   const option = req.params.option;
   const optionConfig = launchOptions[option];
+  const containerName = `${option}-instance`;
 
   if (!optionConfig) {
     return res.status(400).json({ error: 'Invalid option' });
   }
 
-  if (runningContainers.has(option)) {
+  if (await getContainerByName(containerName)) {
     return res.status(409).json({ error: 'Container already running for this option' });
   }
 
@@ -117,8 +181,6 @@ app.post('/start/:option', async (req, res) => {
 
     const container = await docker.createContainer(containerConfig);
     await container.start();
-    runningContainers.set(option, container);
-
     res.json({ status: 'started', id: container.id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -127,7 +189,10 @@ app.post('/start/:option', async (req, res) => {
 
 app.post('/stop/:id', async (req: Request, res: Response) => {
   try {
-    const container = docker.getContainer(req.params.id);
+    const container = await getContainerById(req.params.id);
+    if (!container) {
+      return res.status(404).json({ error: 'Container not found' });
+    }
     await container.stop();
     res.json({ status: 'stopped' });
   } catch (err: any) {
@@ -152,7 +217,6 @@ app.post('/stop/:id', async (req: Request, res: Response) => {
       if (id) {
         const data = `data: ${JSON.stringify(message)}\n\n`;
         sseClientsById[id].forEach(client => client.write(data));
-        runningContainers.delete(id);
       }
     }
   });
