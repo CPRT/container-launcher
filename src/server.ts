@@ -7,6 +7,7 @@ import url from 'url';
 import { Readable } from 'stream';
 import type { IncomingMessage } from 'http';
 import { launchOptions, OptionConfig } from './config/launchOptions';
+import cors from 'cors';
 
 
 type WebSocketWithStream = WebSocket & { stream?: Readable };
@@ -62,6 +63,11 @@ async function getContainerId(container: Container): Promise<string | null> {
 
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 const app = express();
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'],
+  allowedHeaders: ['Content-Type']
+}));
 app.use(express.json());
 
 const server = http.createServer(app);
