@@ -4,7 +4,7 @@ export interface OptionConfig {
   command?: string[];
 }
 
-const image = "cprtsoftware/cprt_rover_24:jetson";
+const image = "cprtsoftware/rover:arm64";
 
 export const launchOptions: Record<string, OptionConfig> = {
   core: {
@@ -23,16 +23,8 @@ export const launchOptions: Record<string, OptionConfig> = {
     image: image,
     command: ["ros2", "launch", "bringup", "arm.launch.py"],
   },
-  localization: {
+  joy: {
     image: image,
-    command: ["ros2", "launch", "bringup", "localization.launch.py"],
-  },
-  navigation: {
-    image: image,
-    command: ["ros2", "launch", "bringup", "navigation.launch.py"],
-  },
-  science: {
-    image: image,
-    command: ["ros2", "launch", "bringup", "science.launch.py"],
+    command: ["ros2", "run", "joy", "joy_node"],
   },
 };
