@@ -21,7 +21,11 @@ const sharedConfig: Partial<Docker.ContainerCreateOptions> = {
     NetworkMode: 'host',
     AutoRemove: false,
     Runtime: 'nvidia',
-    IpcMode: 'host'
+    IpcMode: 'host',
+    Binds: [
+        '/dev/serial/by-id:/dev/serial/by-id',
+        '/dev/v4l/by-id:/dev/v4l/by-id'
+    ]
   }
 };
 
