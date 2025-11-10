@@ -1,18 +1,12 @@
 import express, { Request, Response } from 'express';
 import http from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import Docker, { Container } from 'dockerode';
-import url from 'url';
-import { Readable } from 'stream';
-import type { IncomingMessage } from 'http';
-import { launchOptions, OptionConfig } from './config/launchOptions';
 import cors from 'cors';
+import { launchOptions } from './config/launchOptions';
+import { LogManager } from './LogManager';
 
-type LogClients = {
-  stream: Readable,
-  clients: Set<WebSocket>
-};
-const logStreams = new Map<string, LogClients>();
+const DOCKER_LOG_BUFFER_SIZE = 100;
 
 const sharedConfig: Partial<Docker.ContainerCreateOptions> = {
   Tty: true,
@@ -41,17 +35,17 @@ app.use(express.json());
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
-const clients = new Map<WebSocket, Readable>();
+const logs = new LogManager(docker, { path: '/logs', bufferLines: DOCKER_LOG_BUFFER_SIZE });
+logs.attach(wss);
+
 const sseClients: Response[] = [];
 
+// ---- helpers ----
 async function getContainerByName(name: string): Promise<Container | null> {
   try {
     const containers = await docker.listContainers({ all: true });
-    const containerInfo = containers.find(c => c.Names.includes(`/${name}`));
-    if (containerInfo) {
-      return docker.getContainer(containerInfo.Id);
-    }
-    return null;
+    const info = containers.find(c => c.Names.includes(`/${name}`));
+    return info ? docker.getContainer(info.Id) : null;
   } catch (err) {
     console.error('Error retrieving container by name:', err);
     return null;
@@ -107,92 +101,6 @@ app.get('/events', (req: Request, res: Response) => {
   req.on('close', () => {
     const index = sseClients.indexOf(res);
     if (index !== -1) sseClients.splice(index, 1);
-  });
-});
-
-wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
-  const parsed = url.parse(req.url || '', true);
-  if (!parsed.pathname || parsed.pathname !== '/logs') {
-    ws.close(1008, 'Invalid WebSocket path');
-    return;
-  }
-
-  const containerId = parsed.query.id as string | undefined;
-  if (!containerId) {
-    ws.send('Missing container ID');
-    ws.close();
-    return;
-  }
-
-  let logClients = logStreams.get(containerId);
-  if (!logClients) {
-
-    try {
-      const container = docker.getContainer(containerId);
-      const info = await container.inspect();
-      if (!info.State.Running) {
-        ws.send(`Container ${containerId} is not running. Logs may be incomplete.`);
-      }
-
-      container.logs({ follow: true, stdout: true, stderr: true }, (err, stream) => {
-        if (err || !stream) {
-          ws.send(`Error retrieving logs: ${err?.message || 'Unknown error'}`);
-          ws.close();
-          return;
-        }
-
-        const nodeStream = stream as Readable;
-        const clientsSet = new Set<WebSocket>();
-        clientsSet.add(ws);
-
-        logStreams.set(containerId, { stream: nodeStream, clients: clientsSet });
-
-        nodeStream.on('data', chunk => {
-          for (const client of clientsSet) {
-            if (client.readyState === client.OPEN) {
-              client.send(chunk.toString());
-            }
-          }
-        });
-
-        nodeStream.on('error', err => {
-          console.error('Log stream error:', err);
-          for (const client of clientsSet) {
-            if (client.readyState === client.OPEN) {
-              client.send(`Log stream error: ${err.message}`);
-              client.close();
-            }
-          }
-          logStreams.delete(containerId);
-        });
-
-        nodeStream.on('end', () => {
-          for (const client of clientsSet) {
-            if (client.readyState === client.OPEN) {
-              client.close();
-            }
-          }
-          logStreams.delete(containerId);
-        });
-      });
-
-    } catch (err) {
-      ws.send(`Container not found`);
-      ws.close();
-      return;
-    }
-  } else {
-    logClients.clients.add(ws);
-  }
-
-  ws.on('close', () => {
-    const logClients = logStreams.get(containerId);
-    if (!logClients) return;
-    logClients.clients.delete(ws);
-    if (logClients.clients.size === 0) {
-      logClients.stream.destroy();
-      logStreams.delete(containerId);
-    }
   });
 });
 
@@ -319,6 +227,5 @@ app.post('/stop/:option', async (req: Request, res: Response) => {
 })();
 
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+const shared = server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+export default shared;
