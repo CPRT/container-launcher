@@ -24,7 +24,8 @@ const sharedConfig: Partial<Docker.ContainerCreateOptions> = {
     IpcMode: 'host',
     Binds: [
         '/dev/serial/by-id:/dev/serial/by-id',
-        '/dev/v4l/by-id:/dev/v4l/by-id'
+        '/dev/v4l/by-id:/dev/v4l/by-id',
+        '/usr/local/zed:/usr/local/zed',
     ]
   }
 };
