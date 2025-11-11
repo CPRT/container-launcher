@@ -27,4 +27,12 @@ export const launchOptions: Record<string, OptionConfig> = {
     image: image,
     command: ["ros2", "run", "joy", "joy_node"],
   },
+  slam: {
+    image: image,
+    command: ["ros2", "run", "navigation", "slam.launch.py"],
+  },
+  navigation: {
+    image: image,
+    command: ["ros2", "launch", "navigation", "nav2.launch.py"],
+  },
 };
