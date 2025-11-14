@@ -14,7 +14,7 @@ type LogClients = {
 export type LogManagerOptions = {
   /** WebSocket endpoint path (default: "/logs") */
   path?: string;
-  /** Number of recent log lines to retrieve and buffer (used for Docker tail parameter and in-memory buffer size; default: 100) */
+  /** Number of recent log lines to retrieve and buffer (default: 100) */
   bufferLines?: number;
 };
 
@@ -46,7 +46,13 @@ export class LogManager {
         return;
       }
       this.handleConnection(ws, containerId).catch(err => {
-        try { ws.send(`Error: ${err?.message ?? String(err)}`); } finally { ws.close(); }
+        try {
+          if (ws.readyState === ws.OPEN) {
+            ws.send(`Error: ${err?.message ?? String(err)}`);
+          }
+        } finally {
+          ws.close();
+        }
       });
     });
   }
@@ -68,10 +74,8 @@ export class LogManager {
         ws.close();
         return;
       }
-      if (!info.State?.Running) {
-        if (ws.readyState === ws.OPEN) {
-          ws.send(`Container ${containerId} is not running. Logs may be incomplete.`);
-        }
+      if (!info.State?.Running && ws.readyState === ws.OPEN) {
+        ws.send(`Container ${containerId} is not running. Logs may be incomplete.`);
       }
 
       container.logs(
@@ -83,7 +87,13 @@ export class LogManager {
         },
         (err, stream) => {
           if (err || !stream) {
-            try { ws.send(`Error retrieving logs: ${err?.message || 'Unknown error'}`); } finally { ws.close(); }
+            try {
+              if (ws.readyState === ws.OPEN) {
+                ws.send(`Error retrieving logs: ${err?.message || 'Unknown error'}`);
+              }
+            } finally {
+              ws.close();
+            }
             return;
           }
 
