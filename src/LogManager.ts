@@ -14,7 +14,7 @@ type LogClients = {
 export type LogManagerOptions = {
   /** WebSocket endpoint path (default: "/logs") */
   path?: string;
-  /** Number of lines to request from Docker initially AND keep in memory (default: 100) */
+  /** Number of recent log lines to retrieve and buffer (used for Docker tail parameter and in-memory buffer size; default: 100) */
   bufferLines?: number;
 };
 
@@ -39,7 +39,9 @@ export class LogManager {
       }
       const containerId = parsed.query.id as string | undefined;
       if (!containerId) {
-        ws.send('Missing container ID');
+        if (ws.readyState === ws.OPEN) {
+          ws.send('Missing container ID');
+        }
         ws.close();
         return;
       }
@@ -62,12 +64,14 @@ export class LogManager {
       const container = this.docker.getContainer(containerId);
       const info = await container.inspect().catch(() => null);
       if (!info) {
-        ws.send('Container not found');
+        if (ws.readyState === ws.OPEN) ws.send('Container not found');
         ws.close();
         return;
       }
       if (!info.State?.Running) {
-        ws.send(`Container ${containerId} is not running. Logs may be incomplete.`);
+        if (ws.readyState === ws.OPEN) {
+          ws.send(`Container ${containerId} is not running. Logs may be incomplete.`);
+        }
       }
 
       container.logs(
@@ -110,6 +114,7 @@ export class LogManager {
                 client.close();
               }
             }
+            created.stream.destroy();
             this.logStreams.delete(containerId);
           });
 
@@ -127,7 +132,7 @@ export class LogManager {
       // replay buffer then join live
       for (const line of entry.buffer) {
         if (ws.readyState !== ws.OPEN) break;
-        ws.send(line + '\n');
+        ws.send(line);
       }
       entry.clients.add(ws);
       ws.on('close', () => this.detachClient(containerId, ws));
