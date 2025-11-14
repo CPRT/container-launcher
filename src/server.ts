@@ -192,6 +192,39 @@ app.post('/stop/:option', async (req: Request, res: Response) => {
   }
 });
 
+app.put('/pull/:image', async (req: Request, res: Response) => {
+  try {
+    const image = req.params.image;
+    if (!image) {
+      console.log('Image name required');
+      return res.status(400).json({ error: 'Image name required' });
+    }
+
+    docker.pull(image, (err: any, stream: NodeJS.ReadableStream) => {
+      if (err) {
+        console.error('Error pulling image:', err);
+        return res.status(500).json({ error: 'Error pulling image' });
+      }
+      docker.modem.followProgress(stream, onFinished, onProgress);
+
+      function onFinished(err: any, output: any) {
+        if (err) {
+          console.error('Error during image pull:', err);
+          return res.status(500).json({ error: 'Error during image pull' });
+        }
+        res.json({ status: 'Image pulled successfully' });
+      }
+
+      function onProgress(event: any) {
+        console.log('Pull progress:', event);
+      }
+    });
+  } catch (err: any) {
+    console.log("Error pulling image:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 (async () => {
   const eventStream = await docker.getEvents();
   eventStream.on('data', buffer => {
