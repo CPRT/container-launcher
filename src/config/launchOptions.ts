@@ -29,7 +29,7 @@ export const launchOptions: Record<string, OptionConfig> = {
   },
   slam: {
     image: image,
-    command: ["ros2", "run", "navigation", "slam.launch.py"],
+    command: ["ros2", "launch", "navigation", "slam.launch.py"],
   },
   navigation: {
     image: image,
