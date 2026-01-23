@@ -11,17 +11,21 @@ export const launchOptions: Record<string, OptionConfig> = {
     image: image,
     command: ["ros2", "launch", "bringup", "core.launch.py"],
   },
-  drive: {
-    image: image,
-    command: ["ros2", "launch", "bringup", "drive.launch.py"],
-  },
   videoStreaming: {
     image: image,
-    command: ["ros2", "launch", "bringup", "video_streaming.launch.py"],
+    command: ["ros2", "launch", "video_streaming", "video_streaming.launch.py"],
+  },
+  driveAndArm: {
+    image: image,
+    command: ["ros2", "launch", "bringup", "control.launch.py"],
+  },
+  drive: {
+    image: image,
+    command: ["ros2", "launch", "bringup", "control.launch.py", "use_arm:=false"],
   },
   arm: {
     image: image,
-    command: ["ros2", "launch", "bringup", "arm.launch.py"],
+    command: ["ros2", "launch", "bringup", "control.launch.py", "use_drive:=false"],
   },
   joy: {
     image: image,
