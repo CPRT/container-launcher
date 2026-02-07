@@ -39,4 +39,8 @@ export const launchOptions: Record<string, OptionConfig> = {
     image: image,
     command: ["ros2", "launch", "navigation", "nav2.launch.py"],
   },
+  gps: {
+    image: image,
+    command: ["ros2", "launch", "gps", "rover.launch.py"],
+  },
 };
