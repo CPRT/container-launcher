@@ -43,4 +43,8 @@ export const launchOptions: Record<string, OptionConfig> = {
     image: image,
     command: ["ros2", "launch", "gps", "rover.launch.py"],
   },
+  scienceStreaming: {
+    image: image,
+    command: ["ros2", "launch", "video_streaming", "science_streaming.launch.py"],
+  },
 };
