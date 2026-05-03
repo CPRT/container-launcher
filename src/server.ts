@@ -20,8 +20,12 @@ const sharedConfig: Partial<Docker.ContainerCreateOptions> = {
         '/dev/serial/by-id:/dev/serial/by-id',
         '/dev/v4l/by-id:/dev/v4l/by-id',
         '/usr/local/zed:/usr/local/zed',
-    ]
-  }
+    ],
+  },
+  Env: [
+    'ROS_DOMAIN_ID=0',
+    'ROS_DISCOVERY_SERVER=192.168.0.55:11811',
+  ],
 };
 
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
