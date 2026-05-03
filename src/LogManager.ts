@@ -4,6 +4,8 @@ import Docker from 'dockerode';
 import { Readable } from 'stream';
 import url from 'url';
 
+const MAX_WS_BUFFERED_AMOUNT = 1 * 1024 * 1024; // 1 MB
+
 type LogClients = {
   stream: Readable;
   clients: Set<WebSocket>;
@@ -40,7 +42,7 @@ export class LogManager {
       const containerId = parsed.query.id as string | undefined;
       if (!containerId) {
         if (ws.readyState === ws.OPEN) {
-          ws.send('Missing container ID');
+          this.safeSend(ws, 'Missing container ID');
         }
         ws.close();
         return;
@@ -48,7 +50,7 @@ export class LogManager {
       this.handleConnection(ws, containerId).catch(err => {
         try {
           if (ws.readyState === ws.OPEN) {
-            ws.send(`Error: ${err?.message ?? String(err)}`);
+            this.safeSend(ws, `Error: ${err?.message ?? String(err)}`);
           }
         } finally {
           ws.close();
@@ -62,6 +64,19 @@ export class LogManager {
   }
 
   // ----------------- Internals -----------------
+  private safeSend(ws: WebSocket, data: string | Buffer): boolean {
+    if (ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    if (ws.bufferedAmount > MAX_WS_BUFFERED_AMOUNT) {
+      ws.close(1013, 'Log stream too fast. Stopping to avoid crash.');
+      return false;
+    }
+
+    ws.send(data);
+    return true;
+  }
 
   private async handleConnection(ws: WebSocket, containerId: string) {
     let entry = this.logStreams.get(containerId);
@@ -70,12 +85,12 @@ export class LogManager {
       const container = this.docker.getContainer(containerId);
       const info = await container.inspect().catch(() => null);
       if (!info) {
-        if (ws.readyState === ws.OPEN) ws.send('Container not found');
+        if (ws.readyState === ws.OPEN) this.safeSend(ws, 'Container not found');
         ws.close();
         return;
       }
       if (!info.State?.Running && ws.readyState === ws.OPEN) {
-        ws.send(`Container ${containerId} is not running. Logs may be incomplete.`);
+        this.safeSend(ws, `Container ${containerId} is not running. Logs may be incomplete.`);
       }
 
       container.logs(
@@ -89,7 +104,7 @@ export class LogManager {
           if (err || !stream) {
             try {
               if (ws.readyState === ws.OPEN) {
-                ws.send(`Error retrieving logs: ${err?.message || 'Unknown error'}`);
+                this.safeSend(ws, `Error retrieving logs: ${err?.message || 'Unknown error'}`);
               }
             } finally {
               ws.close();
@@ -111,7 +126,9 @@ export class LogManager {
           nodeStream.on('data', (chunk: Buffer) => {
             const text = chunk.toString();
             for (const client of created.clients) {
-              if (client.readyState === client.OPEN) client.send(text);
+              if (client.readyState === client.OPEN) {
+                this.safeSend(client, text);
+              }
             }
             this.pushToBuffer(created, text);
           });
@@ -142,7 +159,7 @@ export class LogManager {
       // replay buffer then join live
       for (const line of entry.buffer) {
         if (ws.readyState !== ws.OPEN) break;
-        ws.send(line);
+        if (!this.safeSend(ws, line)) break;
       }
       entry.clients.add(ws);
       ws.on('close', () => this.detachClient(containerId, ws));
