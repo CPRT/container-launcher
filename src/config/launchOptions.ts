@@ -4,7 +4,7 @@ export interface OptionConfig {
   command?: string[];
 }
 
-const image = "cprtsoftware/rover:arm64";
+const image = "cprtsoftware/rover:latest";
 
 export const launchOptions: Record<string, OptionConfig> = {
   core: {
