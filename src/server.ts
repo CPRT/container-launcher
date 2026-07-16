@@ -25,6 +25,7 @@ const sharedConfig: Partial<Docker.ContainerCreateOptions> = {
   Env: [
     'ROS_DOMAIN_ID=0',
     'ROS_DISCOVERY_SERVER=192.168.0.55:11811',
+    'NVIDIA_DISABLE_REQUIRE=true',
   ],
 };
 
