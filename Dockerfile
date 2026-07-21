@@ -1,12 +1,12 @@
 # Use an official Node.js runtime as a parent image
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 
 # Set work directory
 WORKDIR /app
 
 # Install dependencies
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 # Copy rest of the source code
 COPY src ./src
